@@ -8,7 +8,7 @@ private_key_path = "~/.oci/oci_api_key.pem" # ou outro nome da chave ssh local
 region           = "us-ashburn-1"
 compartment_ocid = "ocid1.compartment.oc1.."
 
-ssh_cidr  = "179.209.45.80/32" # --ssh-cidr (use o comando curl -4 ifconfig.me + /32)
+ssh_cidr  = "179.209.45.80/32" # --ssh-cidr / curl -s4 ifconfig.me | sed 's/$/\/32/'
 demo_port = 8080               # --demo-port
 shape     = "VM.Standard.A1.Flex"
 ocpus     = 2
