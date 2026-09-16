@@ -15,7 +15,7 @@ output "ssh_private_key_path" {
 }
 
 output "ssh_command" {
-  value = "ssh -i ~/.ssh/health-${local.timestamp} ubuntu@${oci_core_instance.health.public_ip}"
+  value = "ssh -o PubkeyAcceptedKeyTypes=+ssh-ed25519 -i ~/.ssh/health-${local.timestamp} ubuntu@${oci_core_instance.health.public_ip}"
 }
 
 output "vcn_id" {

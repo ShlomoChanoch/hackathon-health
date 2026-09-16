@@ -3,13 +3,13 @@
 # está tudo no ~/.oci/config 
 tenancy_ocid     = "ocid1.tenancy.oc1.."
 user_ocid        = "ocid1.user.oc1.."
-fingerprint      = "xxxxxx"
-private_key_path = "~/.oci/oci_api_key.pem" # ou outro nome da chave ssh local
-region           = "us-ashburn-1"
+fingerprint      = "xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx" # substitua pelo seu fingerprint
+private_key_path = "~/.oci/oci_api_key.pem" 
+region           = "sa-saopaulo-1"
 compartment_ocid = "ocid1.compartment.oc1.."
 
 ssh_cidr  = "000.000.000.000/32" # --ssh-cidr / curl -s4 ifconfig.me | sed 's/$/\/32/'
 demo_port = 8080               # --demo-port
-shape     = "VM.Standard.A1.Flex"
+shape     = "VM.Standard.A1.Flex" # mude a Shape caso dê erro de "Out of Capacity"
 ocpus     = 2
 memory    = 8
