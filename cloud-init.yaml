@@ -1,8 +1,48 @@
 #cloud-config
+
 ssh_pwauth: false
 package_update: true
+package_upgrade: true
+
 packages:
-  - curl
   - ca-certificates
+  - curl
+  - gnupg
+  - lsb-release
+  - git
+
 runcmd:
+  # 0. SSH primeiro, para uma falha posterior nao trancar o acesso
   - systemctl enable --now ssh
+
+  # 1. Adicionar chave GPG oficial do Docker
+  - install -m 0755 -d /etc/apt/keyrings
+  - curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+  - chmod a+r /etc/apt/keyrings/docker.asc
+
+  # 2. Configurar o repositorio oficial do Docker no Ubuntu 24.04 (noble)
+  - 'echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu noble stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null'
+  - apt-get update
+
+  # 3. Instalar Docker Engine, CLI, Containerd e Plugins (Compose/Buildx)
+  - DEBIAN_FRONTEND=noninteractive apt-get install -y -o Dpkg::Options::--force-confdef -o Dpkg::Options::--force-confold docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+  # 4. Iniciar e habilitar o servico
+  - systemctl enable --now docker
+
+  # 5. Adicionar o usuario padrao da OCI (ubuntu) ao grupo docker
+  #    (exige novo login SSH, ou 'newgrp docker', para ter efeito)
+  - usermod -aG docker ubuntu
+
+  # 6. Liberar trafego Web no firewall interno do Ubuntu.
+  #   Estas portas espelham a security list da OCI (ver main.tf). Aqui
+  #   a demo_port esta fixa em 8080: se mudar var.demo_port, ajustar aqui tambem.
+  - iptables -I INPUT 1 -m state --state NEW -p tcp --dport 80 -j ACCEPT
+  - iptables -I INPUT 1 -m state --state NEW -p tcp --dport 443 -j ACCEPT
+  - iptables -I INPUT 1 -m state --state NEW -p tcp --dport 8080 -j ACCEPT
+  - netfilter-persistent save || true
+
+  # 7. Smoke test do Docker
+  - 'docker run --rm hello-world > /var/log/docker-hello.log 2>&1 || echo "WARN: docker hello-world falhou"'
+
+final_message: "Ambiente Docker na OCI configurado com sucesso apos $UPTIME segundos! SSH: ssh ubuntu@<public_ip>. Para usar docker sem sudo, reconecte a sessao (ou rode 'newgrp docker')."

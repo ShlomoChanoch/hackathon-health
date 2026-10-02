@@ -222,6 +222,8 @@ ssh -o PubkeyAcceptedKeyTypes=+ssh-ed25519 -i ~/.ssh/health-20260916135539 ubunt
 
 Sua instância está pronta e agora você pode acessar sua Máquina Virtual na OCI. Acesse o endereço `http://<public_ip>:8080` no seu navegador para ver sua aplicação rodando. Você pode acessar o servidor no Terminal via SSH.
 
+Não tenha pressa em subir sua aplicação, o Hackathon vai até o final do dia. A VM pode levar alguns minutos aplicando todas as mudanças do cloud-init.yaml. Acompanhem o progresso da instalação com o comando `cloud-init status --wait`. Se a instalação não terminar, você pode reiniciar a VM com o comando `sudo reboot` e tentar acessar novamente.
+
 Qualquer problema, informar aos monitores!
 
 Ótimo Hackathon! Auuuuuuuu!
