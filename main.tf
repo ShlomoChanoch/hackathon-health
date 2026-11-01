@@ -127,7 +127,8 @@ resource "oci_core_default_security_list" "health" {
     }
   }
 
-  # ICMP opcional (facilita debug)
+  # Recebe "fragmentation needed" para o Path MTU Discovery.
+  # Sem ela, transferências grandes podem travar.
   ingress_security_rules {
     protocol  = "1"
     source    = "0.0.0.0/0"
@@ -135,6 +136,16 @@ resource "oci_core_default_security_list" "health" {
     icmp_options {
       type = 3
       code = 4
+    }
+  }
+
+  # Echo request só a partir do seu IP
+  ingress_security_rules {
+    protocol  = "1"
+    source    = var.ssh_cidr
+    stateless = false
+    icmp_options {
+      type = 8
     }
   }
 }
