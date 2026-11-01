@@ -2,7 +2,7 @@
 
 ssh_pwauth: false
 package_update: true
-package_upgrade: true
+package_upgrade: false   # evita o 'snap refresh' no boot; o unattended-upgrades cuida das atualizações depois
 
 packages:
   - ca-certificates
@@ -15,6 +15,9 @@ runcmd:
   # 0. SSH primeiro, para uma falha posterior nao trancar o acesso
   - systemctl enable --now ssh
 
+  # 0b. Esperar o DNS ficar pronto (ate ~2 min) antes de qualquer download
+  - 'for i in $(seq 1 24); do getent hosts download.docker.com >/dev/null && break; echo "aguardando DNS ($i)"; sleep 5; done'
+
   # 1. Adicionar chave GPG oficial do Docker
   - install -m 0755 -d /etc/apt/keyrings
   - curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
@@ -25,7 +28,7 @@ runcmd:
   - apt-get update
 
   # 3. Instalar Docker Engine, CLI, Containerd e Plugins (Compose/Buildx)
-  - DEBIAN_FRONTEND=noninteractive apt-get install -y -o Dpkg::Options::--force-confdef -o Dpkg::Options::--force-confold docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+  - DEBIAN_FRONTEND=noninteractive apt-get install -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
   # 4. Iniciar e habilitar o servico
   - systemctl enable --now docker
@@ -45,4 +48,4 @@ runcmd:
   # 7. Smoke test do Docker
   - 'docker run --rm hello-world > /var/log/docker-hello.log 2>&1 || echo "WARN: docker hello-world falhou"'
 
-final_message: "Ambiente Docker na OCI configurado com sucesso apos $UPTIME segundos! SSH: ssh ubuntu@<public_ip>. Para usar docker sem sudo, reconecte a sessao (ou rode 'newgrp docker')."
+final_message: "cloud-init finalizado apos $UPTIME segundos. Verifique: cloud-init status --long e /var/log/docker-hello.log"
