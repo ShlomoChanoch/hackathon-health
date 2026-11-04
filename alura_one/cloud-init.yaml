@@ -39,6 +39,7 @@ runcmd:
   - touch /etc/containers/nodocker   # silencia o aviso do alias docker -> podman
   #    O oracle-epel-release-el8 já vem na imagem, mas o EPEL fica desabilitado
   - 'timeout 600 dnf install -y --enablerepo=ol8_developer_EPEL podman-compose || echo "WARN: podman-compose não instalado"'
+  - 'timeout 600 dnf install -y python36-oci-cli || echo "WARN: python36-oci-cli não instalado"'
 
   # 3. Containers rootless do usuário opc:
   #    - linger: os containers continuam rodando depois do logout do SSH
@@ -53,5 +54,11 @@ runcmd:
   # 5. Diagnóstico (só systemctl e firewall-offline-cmd; nada que use D-Bus do firewalld)
   - 'for s in sshd firewalld; do echo "STATUS $s: $(timeout 10 systemctl is-active $s)"; done'
   - 'echo "STATUS firewall (config): $(timeout 30 firewall-offline-cmd --list-services) $(timeout 30 firewall-offline-cmd --list-ports)"'
+
+write_files:
+  - path: /etc/profile.d/oci-cli-auth.sh
+    permissions: '0644'
+    content: |
+      export OCI_CLI_AUTH=instance_principal
 
 final_message: "cloud-init finalizado apos $UPTIME segundos. Verifique: grep -E 'STATUS|WARN' /var/log/cloud-init-output.log"
