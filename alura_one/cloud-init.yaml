@@ -1,13 +1,13 @@
 #cloud-config
-# Oracle Linux 8.10 (A1.Flex / aarch64)
+# Oracle Linux 9.8 (A1.Flex / aarch64)
 # Este arquivo é lido com templatefile() no main.tf:
-#   ${demo_port} vem de var.demo_port (terraform.tfvars).
+#   ${repo_ssh_url}, ${ocir_user} e os OCIDs dos segredos vêm do terraform.tfvars.
+#   No bash deste arquivo, use $var (sem chaves), senão o templatefile() interpreta.
 #
 # Regra para não travar o cloud-init: todo comando que pode ficar esperando
 # (rede, D-Bus, download) roda com "timeout". Se estourar o tempo, o comando é
 # cortado, aparece um WARN no log e o resto continua.
 #   Log: sudo cat /var/log/cloud-init-output.log | grep -E "STATUS|WARN"
-#
 
 ssh_pwauth: false
 package_update: false
@@ -23,23 +23,22 @@ runcmd:
   # SSH
   - 'timeout 30 firewall-offline-cmd --add-service=ssh || echo "WARN: firewall ssh"'
   - 'timeout 30 firewall-offline-cmd --add-port=22/tcp || echo "WARN: firewall 22/tcp"'
-  # HTTP
-  - 'timeout 30 firewall-offline-cmd --add-service=http || echo "WARN: firewall http"'
-  - 'timeout 30 firewall-offline-cmd --add-port=80/tcp || echo "WARN: firewall 80/tcp"'
-  # HTTPS
+  # HTTPS (o Caddy atende tudo na 443; sem porta 80)
   - 'timeout 30 firewall-offline-cmd --add-service=https || echo "WARN: firewall https"'
   - 'timeout 30 firewall-offline-cmd --add-port=443/tcp || echo "WARN: firewall 443/tcp"'
-  # demo_port (não tem serviço com nome; só porta)
-  - 'timeout 30 firewall-offline-cmd --add-port=${demo_port}/tcp || echo "WARN: firewall ${demo_port}/tcp"'
   #    Faz o firewalld reler a configuração (via systemd, sem esperar o resultado)
   - 'systemctl reload --no-block firewalld || echo "WARN: reload do firewalld"'
 
   # 2. Pacotes (até 10 min cada; o dnf baixa os metadados de todos os repositórios)
   - 'timeout 600 dnf install -y git podman podman-docker || echo "WARN: dnf install falhou ou estourou o tempo"'
   - touch /etc/containers/nodocker   # silencia o aviso do alias docker -> podman
-  #    O oracle-epel-release-el8 já vem na imagem, mas o EPEL fica desabilitado
-  - 'timeout 600 dnf install -y --enablerepo=ol8_developer_EPEL podman-compose || echo "WARN: podman-compose não instalado"'
-  - 'timeout 600 dnf install -y python36-oci-cli || echo "WARN: python36-oci-cli não instalado"'
+  #    Garante o pacote que define o repositório EPEL (no OL8 da OCI ele já vinha;
+  #    no OL9 não confirmei). O repositório fica desabilitado: habilita só na instalação.
+  - 'timeout 600 dnf install -y oracle-epel-release-el9 || echo "WARN: oracle-epel-release-el9"'
+  - 'timeout 600 dnf install -y --enablerepo=ol9_developer_EPEL podman-compose || echo "WARN: podman-compose não instalado"'
+
+  #    OCI CLI (para usar instance principal / dynamic group).
+  - 'command -v oci >/dev/null || { timeout 600 dnf install -y oraclelinux-developer-release-el9 && timeout 600 dnf install -y python39-oci-cli; } || echo "WARN: python39-oci-cli não instalado"'
 
   # 3. Containers rootless do usuário opc:
   #    - linger: os containers continuam rodando depois do logout do SSH
@@ -51,14 +50,90 @@ runcmd:
   # 4. Smoke test do Podman (até 5 min para baixar a imagem)
   - 'timeout 300 podman run --rm docker.io/library/hello-world > /var/log/podman-hello.log 2>&1 || echo "WARN: podman hello-world falhou ou estourou o tempo"'
 
-  # 5. Diagnóstico (só systemctl e firewall-offline-cmd; nada que use D-Bus do firewalld)
+  # 5. Pontapé do GitOps (script em write_files, no fim deste arquivo): segredos do Vault,
+  #    clone do repositório, login no OCIR e timer do sync, tudo como opc
+  - 'timeout 900 /usr/local/sbin/mediflow-bootstrap.sh || echo "WARN: bootstrap do GitOps falhou ou estourou o tempo"'
+
+  # 6. Diagnóstico (só systemctl e firewall-offline-cmd; nada que use D-Bus do firewalld)
   - 'for s in sshd firewalld; do echo "STATUS $s: $(timeout 10 systemctl is-active $s)"; done'
   - 'echo "STATUS firewall (config): $(timeout 30 firewall-offline-cmd --list-services) $(timeout 30 firewall-offline-cmd --list-ports)"'
 
+# Script do passo 5. O cloud-init grava o arquivo antes de rodar o runcmd.
+# Ele roda como root, uma vez, e faz o que é do opc com runuser.
 write_files:
-  - path: /etc/profile.d/oci-cli-auth.sh
-    permissions: '0644'
+  - path: /usr/local/sbin/mediflow-bootstrap.sh
+    owner: root:root
+    permissions: '0700'
     content: |
+      #!/bin/bash
+      # Pontapé inicial do GitOps do MediFlow (primeiro boot).
+      # Sem "set -x": nenhum segredo pode aparecer no log.
       export OCI_CLI_AUTH=instance_principal
+      OPC_HOME=/home/opc
+      REPO_DIR=$OPC_HOME/mediflow
+
+      segredo() {
+        timeout 60 oci secrets secret-bundle get --secret-id "$1" \
+          --query 'data."secret-bundle-content".content' --raw-output 2>/dev/null | base64 -d
+      }
+      como_opc() { runuser -l opc -c "$1"; }
+
+      # a) Espera o instance principal valer: a VM entra no dynamic group pela tag,
+      #    e isso pode levar alguns minutos depois que ela nasce.
+      ok=0
+      for i in $(seq 1 30); do
+        [ -n "$(segredo '${deploy_key_secret_ocid}')" ] && { ok=1; break; }
+        echo "aguardando acesso ao Vault ($i)"; sleep 10
+      done
+      if [ "$ok" != 1 ]; then
+        echo "WARN: sem acesso ao Vault (conferir tag da VM, dynamic group, policy e OCIDs)"
+        exit 1
+      fi
+      echo "STATUS vault: segredos acessíveis"
+
+      # b) Deploy key do GitHub (o sync usa a mesma chave nos git pull)
+      install -d -m 700 -o opc -g opc $OPC_HOME/.ssh
+      segredo '${deploy_key_secret_ocid}' > $OPC_HOME/.ssh/github_deploy
+      [ -n "$(tail -c1 $OPC_HOME/.ssh/github_deploy)" ] && echo >> $OPC_HOME/.ssh/github_deploy
+      printf 'Host github.com\n  IdentityFile ~/.ssh/github_deploy\n  IdentitiesOnly yes\n' >> $OPC_HOME/.ssh/config
+      chown opc:opc $OPC_HOME/.ssh/github_deploy $OPC_HOME/.ssh/config
+      chmod 600 $OPC_HOME/.ssh/github_deploy $OPC_HOME/.ssh/config
+      como_opc "timeout 30 ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null" \
+        || echo "WARN: ssh-keyscan do github.com"
+
+      # c) Clone do repositório da aplicação em ~/mediflow
+      if [ -d $REPO_DIR/.git ]; then
+        echo "STATUS git: $REPO_DIR já existe"
+      elif como_opc "timeout 120 git clone -q '${repo_ssh_url}' ~/mediflow"; then
+        echo "STATUS git: clonado em $REPO_DIR"
+      else
+        echo "WARN: git clone (conferir a deploy key no GitHub e o repo_ssh_url)"
+      fi
+
+      # d) Login no OCIR (us-ashburn-1 = iad.ocir.io). O auth.json fica em ~/.config,
+      #    e não no padrão do rootless (/run/user, apagado a cada reboot).
+      como_opc "mkdir -p ~/.config/containers"
+      if segredo '${ocir_token_secret_ocid}' | como_opc "timeout 60 podman login --authfile ~/.config/containers/auth.json -u '${ocir_user}' --password-stdin iad.ocir.io >/dev/null"; then
+        echo "STATUS ocir: login ok"
+      else
+        echo "WARN: podman login no OCIR (conferir ocir_user e o auth token)"
+      fi
+
+      # e) Timer do sync (units em deploy/ do repositório). Espera o systemd do opc,
+      #    que o linger sobe, e dispara a primeira execução sem esperar o timer.
+      UID_OPC=$(id -u opc)
+      for i in $(seq 1 30); do [ -S /run/user/$UID_OPC/bus ] && break; sleep 2; done
+      if ! como_opc "mkdir -p ~/.config/systemd/user && install -m 644 ~/mediflow/deploy/mediflow-sync.service ~/mediflow/deploy/mediflow-sync.timer ~/.config/systemd/user/"; then
+        echo "WARN: mediflow-sync.service/.timer não encontrados em ~/mediflow/deploy/"
+        exit 1
+      fi
+      timeout 30 systemctl --user -M opc@ daemon-reload
+      if timeout 60 systemctl --user -M opc@ enable --now mediflow-sync.timer; then
+        echo "STATUS sync: timer ativo"
+      else
+        echo "WARN: timer do sync"
+      fi
+      timeout 30 systemctl --user -M opc@ start --no-block mediflow-sync.service \
+        || echo "WARN: primeira execução do sync"
 
 final_message: "cloud-init finalizado apos $UPTIME segundos. Verifique: grep -E 'STATUS|WARN' /var/log/cloud-init-output.log"

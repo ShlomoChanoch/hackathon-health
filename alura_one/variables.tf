@@ -55,10 +55,6 @@ variable "ssh_cidr" {
   type        = string
 }
 
-variable "demo_port" {
-  description = "Porta extra de demonstração (--demo-port)"
-  type        = number
-}
 
 variable "shape" {
   description = "Shape da instância"
@@ -88,4 +84,36 @@ variable "name_prefix" {
   description = "Prefixo dos nomes dos recursos e da chave SSH"
   type        = string
   default     = "mediflow"
+}
+
+variable "repo_ssh_url" {
+  description = "URL SSH do repositório da aplicação (git@github.com:<org>/<repo>.git)"
+  type        = string
+}
+
+variable "ocir_user" {
+  description = "Usuário do login no OCIR: <namespace>/<usuário> (ou <namespace>/<domínio>/<usuário>)"
+  type        = string
+}
+
+variable "deploy_key_secret_ocid" {
+  description = "OCID do segredo no Vault com a chave privada da deploy key do GitHub (mediflow-deploy-key)"
+  type        = string
+}
+
+variable "ocir_token_secret_ocid" {
+  description = "OCID do segredo no Vault com o auth token do OCIR"
+  type        = string
+}
+
+variable "duckdns_domain" {
+  description = "Subdomínio do DuckDNS, sem .duckdns.org"
+  type        = string
+  default     = "mediflow-oci"
+}
+
+variable "duckdns_token" {
+  description = "Token da conta do DuckDNS (fica só no terraform.tfvars, fora do Git)"
+  type        = string
+  sensitive   = true
 }

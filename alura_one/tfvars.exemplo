@@ -9,7 +9,16 @@ subnet_id        = "ocid1.subnet.oc1."
 nsg_id           = "ocid1.networksecuritygroup.oc1...."
 
 ssh_cidr    = "000.000.000.000/32"  # --ssh-cidr (curl -s4 ifconfig.me | sed 's/$/\/32/')
-demo_port   = 8080                  # --demo-port
 shape       = "VM.Standard.A1.Flex" # mude a Shape caso dê erro de "Out of Capacity"
 ocpus       = 2
 memory      = 12
+
+# GitOps (lidos pelo cloud-init no primeiro boot)
+repo_ssh_url           = "git@github.com:<org>/<repo>.git"
+ocir_user              = "<namespace>/<domínio>/<usuário>" # oci os ns get mostra o namespace
+deploy_key_secret_ocid = "ocid1.vaultsecret.oc1.iad...." # segredo mediflow-deploy-key
+ocir_token_secret_ocid = "ocid1.vaultsecret.oc1.iad...." # segredo com o auth token do OCIR
+
+# DuckDNS (atualizado pelo Terraform, da sua máquina)
+duckdns_domain = "mediflow-oci"
+duckdns_token  = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" # duckdns.org, depois do login
